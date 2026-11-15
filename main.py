@@ -1,32 +1,18 @@
-"""
-SMART EVAC — BFS-Based Emergency Evacuation Route Planner
-==========================================================
-A Data Structures and Algorithms project demonstrating BFS on a 2D grid.
-
-Dependencies:
-    python -m pip install customtkinter
-
-Run:
-    python main.py
-"""
-
 import tkinter as tk
 from collections import deque
 import customtkinter as ctk
 
-# ─────────────────────────────────────────────────────────────────────────────
 # GLOBAL CONFIGURATION
-# ─────────────────────────────────────────────────────────────────────────────
 
 ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+ctk.set_default_color_theme("green")
 
 GRID_ROWS    = 20
 GRID_COLS    = 20
 CELL_SIZE    = 34        # pixels per grid cell
 GRID_PADDING = 10        # canvas padding around the grid
 
-# ── Cell state constants ──────────────────────────────────────────────────────
+# Cell state constants
 EMPTY   = 0
 WALL    = 1
 EXIT    = 2
@@ -34,7 +20,6 @@ START   = 3
 VISITED = 4
 PATH    = 5
 
-# ── Colour palette ────────────────────────────────────────────────────────────
 COLOUR = {
     EMPTY:   "#303030",
     WALL:    "#555555",
@@ -47,10 +32,10 @@ GRID_LINE_COLOUR = "#444444"
 CANVAS_BG        = "#1a1a1a"
 PANEL_BG         = "#1e1e1e"
 
-# ── BFS animation speeds (milliseconds between each step) ────────────────────
+# BFS animation speeds (milliseconds between each step)
 SPEED_OPTIONS = {"Slow": 150, "Normal": 60, "Fast": 15}
 
-# ── Workflow stages ───────────────────────────────────────────────────────────
+# Workflow Keys
 STAGE_WALLS   = 1   # user is drawing walls
 STAGE_EXITS   = 2   # user is placing exits
 STAGE_START   = 3   # user is placing start position
@@ -58,52 +43,36 @@ STAGE_RUNNING = 4   # BFS animation is active
 STAGE_DONE    = 5   # simulation finished
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# BFS ALGORITHM  (pure logic — zero GUI dependency)
-# ─────────────────────────────────────────────────────────────────────────────
+# BFS ALGORITHM
 
 def bfs(start, exits, grid):
-    """
-    Breadth-First Search from `start` towards any cell in `exits`.
 
-    Parameters
-    ----------
-    start  : (row, col) — the person's starting position.
-    exits  : set of (row, col) — all emergency exit locations.
-    grid   : 2-D list of cell state integers.
-
-    Returns
-    -------
-    explored : list of (row, col) in BFS discovery order (for animation).
-    path     : list from start to the nearest exit, or [] if unreachable.
-    """
     rows = len(grid)
     cols = len(grid[0])
 
-    # Four cardinal directions: up, down, left, right
+    # Four directions: up, down, left, right
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
-    # ── BFS data structures ──────────────────────────────────────────────────
-    queue   = deque()       # BFS frontier — deque for O(1) popleft
-    visited = set()         # cells already discovered
+    # BFS data structures
+    queue   = deque()
+    visited = set()
     parent  = {}            # parent[cell] = cell that first reached it
 
     # Seed the BFS from the starting position
     queue.append(start)
     visited.add(start)
-    parent[start] = None    # start has no parent
+    parent[start] = None
 
-    explored   = []         # ordered list used by the animation
-    found_exit = None       # first exit reached (nearest by BFS level)
+    explored   = []         # list used by the animation
+    found_exit = None
 
-    # ── Main BFS loop ────────────────────────────────────────────────────────
+    #  Main BFS loop
     while queue:
         current = queue.popleft()
 
-        # Did we reach an emergency exit?
         if current in exits:
             found_exit = current
-            break           # stop — this is the nearest exit
+            break
 
         # Inspect the four neighbours
         for dr, dc in directions:
@@ -111,36 +80,26 @@ def bfs(start, exits, grid):
             nc = current[1] + dc
             neighbour = (nr, nc)
 
-            # Reject out-of-bounds
             if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
                 continue
-            # Reject walls
             if grid[nr][nc] == WALL:
                 continue
-            # Reject already-visited cells
             if neighbour in visited:
                 continue
 
-            # Mark, record parent, and enqueue
             visited.add(neighbour)
             parent[neighbour] = current
             queue.append(neighbour)
 
-            # Save for animation (the start cell itself is excluded)
             if neighbour != start:
                 explored.append(neighbour)
 
-    # ── Reconstruct the shortest path ────────────────────────────────────────
+    # Reconstruct the shortest path
     path = reconstruct_path(parent, found_exit)
     return explored, path
 
 
 def reconstruct_path(parent, exit_cell):
-    """
-    Walk backwards through `parent` from `exit_cell` to the start.
-
-    Returns [start, …, exit_cell] or [] when no exit was reached.
-    """
     if exit_cell is None:
         return []
 
@@ -150,67 +109,49 @@ def reconstruct_path(parent, exit_cell):
         path.append(current)
         current = parent[current]
 
-    path.reverse()          # reverse to get start → exit order
+    path.reverse()
     return path
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # MAIN APPLICATION CLASS
-# ─────────────────────────────────────────────────────────────────────────────
 
 class SmartEvac:
-    """
-    SMART EVAC application.
-
-    Owns:
-      - The CustomTkinter window and all widgets.
-      - The 20×20 grid state (2-D list).
-      - The multi-stage configuration workflow.
-      - BFS animation via root.after() (non-blocking).
-    """
-
     def __init__(self, root: ctk.CTk):
         self.root = root
         self.root.title("SMART EVAC | Emergency Route Planner")
         self.root.resizable(False, False)
         self.root.configure(fg_color="#242424")
 
-        # ── Grid state ───────────────────────────────────────────────────────
+        # Grid state
         self.grid         = self._create_grid()
         self.canvas_items = {}              # (row, col) → canvas rectangle id
 
-        # ── App state ────────────────────────────────────────────────────────
-        self.stage       = STAGE_WALLS
-        self.exits       = set()           # set of (row, col)
-        self.start_pos   = None            # (row, col) or None
+        #  App state
+        self.stage = STAGE_WALLS
+        self.exits = set()                 # set of (row, col)
+        self.start_pos = None              # (row, col) or None
         self.is_dragging = False
         self.drag_action = None            # "place" or "erase"
         self.anim_job_id = None            # handle for after() cancellation
 
-        # ── Build UI then draw grid ───────────────────────────────────────────
+        # Build UI then draw grid
         self._build_layout()
         self._draw_grid()
         self._refresh_panel()
 
-    # ─────────────────────────────────────────────────────────────────────────
     # GRID CREATION
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _create_grid(self):
-        """Return a fresh GRID_ROWS × GRID_COLS grid filled with EMPTY."""
+        "Return a fresh GRID_ROWS × GRID_COLS grid filled with EMPTY."
         return [[EMPTY] * GRID_COLS for _ in range(GRID_ROWS)]
 
-    # ─────────────────────────────────────────────────────────────────────────
     # UI CONSTRUCTION
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _build_layout(self):
-        """Build the two-column layout: canvas on the left, panel on the right."""
-
         outer = ctk.CTkFrame(self.root, fg_color="#242424")
         outer.pack(fill="both", expand=True, padx=8, pady=8)
 
-        # ── LEFT: grid canvas ─────────────────────────────────────────────────
+        # LEFT: grid canvas
         canvas_frame = ctk.CTkFrame(
             outer, fg_color="#1a1a1a",
             corner_radius=10, border_width=1, border_color="#333333",
@@ -230,7 +171,7 @@ class SmartEvac:
         self.canvas.bind("<B1-Motion>",       self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
 
-        # ── RIGHT: scrollable control panel ──────────────────────────────────
+        # RIGHT: scrollable control panel
         # CTkScrollableFrame lets the panel content scroll if it doesn't fit.
         panel_height = ch + 16          # match the canvas frame height
         self.panel = ctk.CTkScrollableFrame(
@@ -250,11 +191,11 @@ class SmartEvac:
 
     def _build_panel_content(self):
         """Populate the right-hand control panel with static and dynamic widgets."""
-        p = self.panel          # shorthand
+        p = self.panel
 
-        # ── Title ─────────────────────────────────────────────────────────────
+        # Title
         ctk.CTkLabel(
-            p, text="🚨  SMART EVAC",
+            p, text="SMART EVAC",
             font=ctk.CTkFont("Segoe UI", 20, "bold"),
             text_color="#FF5252",
         ).pack(pady=(14, 1))
@@ -267,7 +208,7 @@ class SmartEvac:
 
         ctk.CTkFrame(p, height=1, fg_color="#333333").pack(fill="x", padx=12, pady=(0, 8))
 
-        # ── Current step box ──────────────────────────────────────────────────
+        # Current step box
         step_box = ctk.CTkFrame(p, fg_color="#252525", corner_radius=8)
         step_box.pack(fill="x", padx=10, pady=(0, 6))
 
@@ -293,12 +234,12 @@ class SmartEvac:
         )
         self.lbl_instr.pack(anchor="w", padx=10, pady=(0, 8))
 
-        # ── Configuration status ──────────────────────────────────────────────
+        # Configuration status
         cfg_box = ctk.CTkFrame(p, fg_color="#252525", corner_radius=8)
         cfg_box.pack(fill="x", padx=10, pady=(0, 6))
 
         ctk.CTkLabel(
-            cfg_box, text="📋  CONFIGURATION",
+            cfg_box, text="CONFIGURATION",
             font=ctk.CTkFont("Segoe UI", 8, "bold"),
             text_color="#666666",
         ).pack(anchor="w", padx=10, pady=(7, 3))
@@ -308,12 +249,12 @@ class SmartEvac:
         self.lbl_start = self._status_row(cfg_box, "Start")
         ctk.CTkLabel(cfg_box, text="").pack(pady=2)
 
-        # ── Legend ────────────────────────────────────────────────────────────
+        # Legend
         leg_box = ctk.CTkFrame(p, fg_color="#252525", corner_radius=8)
         leg_box.pack(fill="x", padx=10, pady=(0, 6))
 
         ctk.CTkLabel(
-            leg_box, text="🎨  LEGEND",
+            leg_box, text="LEGEND",
             font=ctk.CTkFont("Segoe UI", 8, "bold"),
             text_color="#666666",
         ).pack(anchor="w", padx=10, pady=(7, 3))
@@ -329,7 +270,7 @@ class SmartEvac:
             self._legend_row(leg_box, colour, label)
         ctk.CTkLabel(leg_box, text="").pack(pady=2)
 
-        # ── Speed selector ────────────────────────────────────────────────────
+        # Speed selector
         spd_box = ctk.CTkFrame(p, fg_color="#252525", corner_radius=8)
         spd_box.pack(fill="x", padx=10, pady=(0, 6))
 
@@ -351,13 +292,12 @@ class SmartEvac:
             unselected_color="#2a2a2a",
         ).pack(fill="x", padx=10, pady=(0, 10))
 
-        # ── Navigation buttons (Back / Next) ──────────────────────────────────
+        # Navigation buttons (Back / Next)
         # These sit in a dedicated frame; we swap their content via configure().
         nav_box = ctk.CTkFrame(p, fg_color="transparent")
         nav_box.pack(fill="x", padx=10, pady=(0, 4))
 
         # We always keep both buttons present but show/hide with pack_forget/pack.
-        # To avoid the side="left" vs full-width conflict we use two separate rows.
         self._nav_row = ctk.CTkFrame(nav_box, fg_color="transparent")
         self._nav_row.pack(fill="x")
 
@@ -376,7 +316,7 @@ class SmartEvac:
             command=self._go_next,
         )
 
-        # ── Action buttons ────────────────────────────────────────────────────
+        # Action buttons
         act_box = ctk.CTkFrame(p, fg_color="transparent")
         act_box.pack(fill="x", padx=10, pady=(0, 6))
 
@@ -407,12 +347,12 @@ class SmartEvac:
         )
         self.btn_clear.pack(fill="x")
 
-        # ── Result box ────────────────────────────────────────────────────────
+        # Result box
         res_box = ctk.CTkFrame(p, fg_color="#252525", corner_radius=8)
         res_box.pack(fill="x", padx=10, pady=(6, 14))
 
         ctk.CTkLabel(
-            res_box, text="📊  RESULT",
+            res_box, text="RESULT",
             font=ctk.CTkFont("Segoe UI", 8, "bold"),
             text_color="#666666",
         ).pack(anchor="w", padx=10, pady=(7, 2))
@@ -425,9 +365,7 @@ class SmartEvac:
         )
         self.lbl_result.pack(anchor="w", padx=10, pady=(0, 10))
 
-    # ─────────────────────────────────────────────────────────────────────────
     # WIDGET HELPERS
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _status_row(self, parent, label_text):
         """Return the value CTkLabel for a key:value status row."""
@@ -459,9 +397,7 @@ class SmartEvac:
             text_color="#CCCCCC",
         ).pack(side="left")
 
-    # ─────────────────────────────────────────────────────────────────────────
     # GRID DRAWING
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _draw_grid(self):
         """Full redraw of every cell and all grid lines."""
@@ -506,9 +442,7 @@ class SmartEvac:
                 item, fill=COLOUR.get(self.grid[row][col], COLOUR[EMPTY])
             )
 
-    # ─────────────────────────────────────────────────────────────────────────
     # MOUSE EVENTS
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _pixel_to_cell(self, ex, ey):
         """Convert canvas pixel coords to (row, col), or None if outside grid."""
@@ -552,9 +486,7 @@ class SmartEvac:
         self.is_dragging = False
         self.drag_action = None
 
-    # ─────────────────────────────────────────────────────────────────────────
     # GRID EDITING
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _place_wall(self, cell):
         r, c = cell
@@ -600,9 +532,7 @@ class SmartEvac:
         self._refresh_cell(r, c)
         self._refresh_panel()
 
-    # ─────────────────────────────────────────────────────────────────────────
     # WORKFLOW NAVIGATION
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _go_next(self):
         if self.stage == STAGE_WALLS:
@@ -623,14 +553,12 @@ class SmartEvac:
             self.stage = STAGE_EXITS
             self._refresh_panel()
 
-    # ─────────────────────────────────────────────────────────────────────────
     # PANEL REFRESH  — called whenever stage or config changes
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _refresh_panel(self):
         """Synchronise every dynamic widget with the current app state."""
 
-        # ── Step label + instruction ──────────────────────────────────────────
+        # Step label + User instruction
         STEP_INFO = {
             STAGE_WALLS: (
                 "STEP 1 of 3 — Draw Walls",
@@ -660,7 +588,7 @@ class SmartEvac:
         self.lbl_stage.configure(text=sh)
         self.lbl_instr.configure(text=si)
 
-        # ── Config status badges ──────────────────────────────────────────────
+        # Config status badges
         wall_count = sum(
             1 for r in range(GRID_ROWS) for c in range(GRID_COLS)
             if self.grid[r][c] == WALL
@@ -678,7 +606,7 @@ class SmartEvac:
             text_color="#81C784" if self.start_pos else "#888888",
         )
 
-        # ── Navigation buttons ────────────────────────────────────────────────
+        # Navigation buttons
         # Always clear the nav row first
         for widget in self._nav_row.winfo_children():
             widget.pack_forget()
@@ -697,7 +625,7 @@ class SmartEvac:
         elif self.stage == STAGE_START:
             self.btn_back.pack(in_=self._nav_row, fill="x", pady=(0, 4))
 
-        # ── Action button states ──────────────────────────────────────────────
+        # Action button states
         can_simulate = (
             self.stage == STAGE_START
             and self.start_pos is not None
@@ -715,9 +643,7 @@ class SmartEvac:
             state="disabled" if self.stage == STAGE_RUNNING else "normal"
         )
 
-    # ─────────────────────────────────────────────────────────────────────────
     # SIMULATION
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _start_simulation(self):
         """Validate, run BFS, and kick off the animation."""
@@ -780,9 +706,7 @@ class SmartEvac:
         self._set_result("Awaiting simulation…", "#888888")
         self._refresh_panel()
 
-    # ─────────────────────────────────────────────────────────────────────────
     # ANIMATION  (after()-based, non-blocking)
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _animate_exploration(self, explored, path, delay, idx):
         """
@@ -808,7 +732,7 @@ class SmartEvac:
             else:
                 self.stage = STAGE_DONE
                 self._set_result(
-                    f"❌  NO ACCESSIBLE EXIT FOUND\n\nCells explored: {len(explored)}",
+                    f"NO ACCESSIBLE EXIT FOUND\n\nCells explored: {len(explored)}",
                     "#FF5252",
                 )
                 self._refresh_panel()
@@ -846,17 +770,13 @@ class SmartEvac:
             )
             self._refresh_panel()
 
-    # ─────────────────────────────────────────────────────────────────────────
     # HELPERS
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _set_result(self, text, colour="#CCCCCC"):
         self.lbl_result.configure(text=text, text_color=colour)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ENTRY POINT
-# ─────────────────────────────────────────────────────────────────────────────
+# MAIN FN
 
 def main():
     root = ctk.CTk()
