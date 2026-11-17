@@ -40,6 +40,16 @@
         <section class="result-card" id="resultCard"><div class="result-heading"><span class="result-spark">✳</span><span>ROUTE TELEMETRY</span><span class="result-line"></span><span class="telemetry-dot"></span></div><p id="resultText">Awaiting simulation…</p></section>
       </aside>
     </section>
+    <div class="result-overlay" id="resultOverlay" hidden>
+      <section class="result-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle" aria-describedby="dialogMessage">
+        <button class="dialog-close" id="dialogCloseIcon" aria-label="Close result">×</button>
+        <div class="dialog-orbit"><span id="dialogGlyph">✓</span></div>
+        <div class="dialog-eyebrow" id="dialogEyebrow">ROUTE ANALYSIS COMPLETE</div>
+        <h2 id="dialogTitle">Evacuation route found</h2>
+        <p id="dialogMessage"></p>
+        <div class="dialog-actions"><button class="dialog-button secondary-dialog" id="dialogClose">Back to grid</button><button class="dialog-button primary-dialog" id="dialogReset">Run another simulation <span>↗</span></button></div>
+      </section>
+    </div>
     <footer><span>SMARTEVAC <i>·</i> DSA PROJECT</span><span>SAFE ROUTING SYSTEM <i>·</i> BFS ENGINE ACTIVE</span></footer>
   </main>
   <script>window.GRID_SIZE = { rows: {{ rows }}, cols: {{ cols }} };</script><script src="{{ url_for('static', filename='app.js') }}"></script>

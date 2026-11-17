@@ -127,8 +127,40 @@ $('resetBtn').onclick = async () => {
 
 function finishAnimation() {
   clearTimeout(animationTimer); animationTimer = null;
-  api('finish').then(result => { state = result; locked = false; render(); });
+  api('finish').then(result => {
+    state = result; locked = false; render();
+    if (state.stage === 5) showResultDialog();
+  });
 }
+function showResultDialog() {
+  const found = state.resultType === 'success';
+  $('resultOverlay').className = `result-overlay ${found ? 'success' : 'failure'}`;
+  $('dialogEyebrow').textContent = found ? 'ROUTE ANALYSIS COMPLETE' : 'ROUTE ANALYSIS FINISHED';
+  $('dialogGlyph').textContent = found ? '✓' : '×';
+  $('dialogTitle').textContent = found ? 'Evacuation route found' : 'No accessible exit found';
+  $('dialogMessage').textContent = state.result;
+  $('resultOverlay').hidden = false;
+  requestAnimationFrame(() => $('resultOverlay').classList.add('visible'));
+  $('dialogClose').focus();
+}
+function closeResultDialog() {
+  const overlay = $('resultOverlay');
+  overlay.classList.remove('visible');
+  window.setTimeout(() => { overlay.hidden = true; }, 220);
+}
+async function resetFromDialog() {
+  closeResultDialog();
+  state = await api('reset'); render();
+}
+$('dialogClose').onclick = closeResultDialog;
+$('dialogCloseIcon').onclick = closeResultDialog;
+$('dialogReset').onclick = resetFromDialog;
+$('resultOverlay').addEventListener('click', event => {
+  if (event.target === $('resultOverlay')) closeResultDialog();
+});
+window.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('resultOverlay').hidden) closeResultDialog();
+});
 function advanceAnimation() {
   if (animationIndex >= animationEvents.length) { finishAnimation(); return; }
   const [row, col, value] = animationEvents[animationIndex++];
