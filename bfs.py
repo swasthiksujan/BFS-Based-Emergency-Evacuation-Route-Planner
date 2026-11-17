@@ -1,7 +1,4 @@
-"""
-Breadth-First Search (BFS) pathfinding algorithm and path reconstruction
-for 2D grid evacuation planning.
-"""
+"""Breadth-first search and shortest-path reconstruction for a 2D grid."""
 
 from collections import deque
 from constants import WALL

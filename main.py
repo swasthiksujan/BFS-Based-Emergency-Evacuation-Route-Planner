@@ -1,4 +1,4 @@
-"""Start the Smart Evac web application."""
+"""Start the Node Run browser game."""
 
 from ui import app
 

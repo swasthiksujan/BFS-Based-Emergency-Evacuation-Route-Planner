@@ -1,194 +1,171 @@
-const EMPTY = 0, WALL = 1, EXIT = 2, START = 3, VISITED = 4, PATH = 5;
-const colors = { 0: 'empty', 1: 'wall', 2: 'exit', 3: 'start', 4: 'visited', 5: 'path' };
-const stages = {
-  1: ['Draw the walls', 'Click or drag across the grid to mark obstacles and shape your building.', 'Walls are the first step in planning a safe evacuation.', 'Click and drag to draw walls', '01', '▦'],
-  2: ['Place emergency exits', 'Mark one or more exits where people can leave the building.', 'Add at least one exit, then continue to your starting point.', 'Click cells to add or remove exits', '02', '↗'],
-  3: ['Set the starting point', 'Choose where the person begins their evacuation.', 'Set one starting point to enable the simulation.', 'Click a walkable cell to set start', '03', '◎'],
-  4: ['Finding a safe route…', 'Breadth-first search is exploring every reachable corridor.', 'Follow the amber exploration wave and cyan shortest path.', 'SIMULATION IN PROGRESS', '—', '◌'],
-  5: ['Simulation complete', 'Review the result below or reset to try another route.', 'The shortest accessible route has been calculated.', 'SIMULATION COMPLETE', '—', '✓']
-};
+const WALL = 1;
 const $ = id => document.getElementById(id);
-const gridEl = $('grid');
-let state, dragging = false, dragMode = 'place', locked = false;
-let animationTimer = null, animationEvents = [], animationIndex = 0, debugMode = false, animationDelay = 60;
+const board = $('board');
+const directions = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' };
+let gameState = null;
+let busy = false;
+let queuedMoves = [];
+let cells = [];
+let actors = [];
+let renderedLevel = null;
 
-async function api(path, body = {}) {
-  const options = { method: path === 'state' ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' } };
-  if (path !== 'state') options.body = JSON.stringify(body);
-  const response = await fetch(`/api/${path}`, options);
-  if (!response.ok) throw new Error(`Request failed: ${path}`);
+async function request(path, body) {
+  const response = await fetch(`/api/${path}`, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!response.ok) throw new Error(`Game request failed: ${path}`);
   return response.json();
 }
 
-function cellAtPoint(x, y) {
-  const el = document.elementFromPoint(x, y)?.closest('.cell');
-  return el && gridEl.contains(el) ? [+el.dataset.row, +el.dataset.col] : null;
-}
-function cellPayload(event) { return cellAtPoint(event.clientX, event.clientY); }
+function keyFor(row, col) { return `${row},${col}`; }
 
-function drawGrid() {
+function createBoard() {
   const fragment = document.createDocumentFragment();
-  gridEl.style.setProperty('--cols', GRID_SIZE.cols);
-  for (let row = 0; row < GRID_SIZE.rows; row++) for (let col = 0; col < GRID_SIZE.cols; col++) {
-    const cell = document.createElement('button');
-    cell.className = `cell ${colors[state.grid[row][col]]}`;
-    cell.dataset.row = row; cell.dataset.col = col;
-    cell.setAttribute('role', 'gridcell');
-    cell.setAttribute('aria-label', `Row ${row + 1}, column ${col + 1}`);
-    fragment.append(cell);
+  board.style.setProperty('--cols', gameState.cols);
+  board.style.setProperty('--rows', gameState.rows);
+  cells = [];
+  for (let row = 0; row < gameState.rows; row++) {
+    cells[row] = [];
+    for (let col = 0; col < gameState.cols; col++) {
+      const cell = document.createElement('div');
+      cell.className = `cell ${gameState.grid[row][col] === WALL ? 'wall' : 'floor'}`;
+      cell.setAttribute('role', 'gridcell');
+      cells[row][col] = cell;
+      fragment.append(cell);
+    }
   }
-  gridEl.replaceChildren(fragment);
+  const actorLayer = document.createElement('div');
+  actorLayer.className = 'actor-layer';
+  actors = [document.createElement('div')];
+  actors[0].className = 'actor player-sprite';
+  actors[0].setAttribute('aria-label', 'You');
+  actorLayer.append(actors[0]);
+  for (let index = 0; index < 3; index++) {
+    const actor = document.createElement('div');
+    actor.className = `actor seeker-sprite seeker-${index}`;
+    actor.setAttribute('aria-label', `BFS seeker ${index + 1}`);
+    actors.push(actor);
+    actorLayer.append(actor);
+  }
+  fragment.append(actorLayer);
+  board.replaceChildren(fragment);
+  renderedLevel = gameState.level;
 }
 
-function render(skipGrid = false) {
-  if (!state) return;
-  if (!skipGrid) drawGrid();
-  const stage = state.stage, copy = stages[stage];
-  $('stageTitle').textContent = copy[0]; $('stageDescription').textContent = copy[1];
-  $('stageMessage').textContent = copy[2]; $('editHint').textContent = copy[3];
-  $('stepCounter').innerHTML = `${copy[4]} <i>/ 03</i>`; $('stageIcon').textContent = copy[5];
-  $('progressBar').style.width = `${stage < 4 ? stage * 33.333 : 100}%`;
-  $('mapStatus').textContent = stage === 4 ? 'BFS RUNNING' : stage === 5 ? 'ROUTE FOUND' : 'EDIT MODE';
-  document.querySelectorAll('.workflow-step').forEach((step, index) => {
-    const number = index + 1;
-    step.classList.toggle('active', stage === number);
-    step.classList.toggle('complete', stage > number);
-  });
-  $('wallCount').textContent = `${state.grid.flat().filter(cell => cell === WALL).length} cells`;
-  $('exitCount').textContent = `${state.exits.length} ${state.exits.length === 1 ? 'exit' : 'exits'}`;
-  $('startValue').textContent = state.start ? `(${state.start[0]}, ${state.start[1]})` : 'Not set';
-  $('nextBtn').hidden = stage === 3 || stage >= 4; $('backBtn').hidden = stage === 1 || stage >= 4;
-  $('startBtn').hidden = stage !== 3;
-  $('nextBtn').innerHTML = stage === 1 ? 'Choose exits <span>→</span>' : 'Set starting point <span>→</span>';
-  $('startBtn').disabled = stage !== 3 || !state.start || !state.exits.length;
-  $('resetBtn').disabled = stage !== 4 && stage !== 5;
-  $('stepBtn').disabled = stage < 3 || stage === 5;
-  $('stepLabel').textContent = debugMode ? 'Advance one step' : 'Step-by-step debug';
-  $('exportBtn').disabled = !state.path?.length;
-  $('clearBtn').disabled = stage === 4;
-  $('resultText').textContent = state.result;
-  $('resultCard').className = `result-card ${state.resultType || ''}`;
-  $('startBtn').classList.toggle('ready', !$('startBtn').disabled);
-}
-
-async function sync() { state = await api('state'); render(); }
-function paint(row, col, value) {
-  const cell = gridEl.querySelector(`[data-row="${row}"][data-col="${col}"]`);
-  if (!cell) return;
-  cell.className = `cell ${colors[value]}`;
-  cell.animate([{ transform: 'scale(.72)', filter: 'brightness(1.8)' }, { transform: 'scale(1)', filter: 'brightness(1)' }], { duration: 190, easing: 'cubic-bezier(.2,.8,.2,1)' });
-}
-async function clickCell(row, col, action) {
-  state = await api('cell', { row, col, action }); render(true);
-  const cell = gridEl.querySelector(`[data-row="${row}"][data-col="${col}"]`);
-  if (cell) { cell.className = `cell ${colors[state.grid[row][col]]}`; cell.animate([{ transform: 'scale(.82)' }, { transform: 'scale(1)' }], { duration: 150 }); }
-}
-
-async function handleCellPointer(event) {
-  if (!dragging || !state || state.stage !== 1) return;
-  const cell = cellPayload(event); if (!cell) return;
+function placeActor(actor, cell, rotation = 0) {
   const [row, col] = cell;
-  if ((dragMode === 'place' && state.grid[row][col] === EMPTY) || (dragMode === 'erase' && state.grid[row][col] === WALL)) {
-    await clickCell(row, col, dragMode);
+  actor.style.left = `${(col + 0.5) / gameState.cols * 100}%`;
+  actor.style.top = `${(row + 0.5) / gameState.rows * 100}%`;
+  actor.style.setProperty('--facing', `${rotation}deg`);
+}
+
+function render() {
+  if (!gameState) return;
+  if (!cells.length || renderedLevel !== gameState.level) createBoard();
+
+  for (const row of cells) for (const cell of row) cell.classList.remove('pursuit', 'active-dot', 'pulse-dot-cell');
+  const pathSet = new Set(gameState.paths.flatMap(path => path.map(cell => keyFor(...cell))));
+  const pelletSet = new Set(gameState.pellets.map(cell => keyFor(...cell)));
+  const pulseSet = new Set(gameState.pulses.map(cell => keyFor(...cell)));
+  for (let row = 0; row < gameState.rows; row++) for (let col = 0; col < gameState.cols; col++) {
+    const key = keyFor(row, col);
+    if (pathSet.has(key)) cells[row][col].classList.add('pursuit');
+    if (pelletSet.has(key)) cells[row][col].classList.add('active-dot');
+    if (pulseSet.has(key)) cells[row][col].classList.add('pulse-dot-cell');
+  }
+
+  const heading = { up: -90, right: 0, down: 90, left: 180 };
+  placeActor(actors[0], gameState.player, heading[gameState.direction] ?? 0);
+  gameState.seekers.forEach((seeker, index) => placeActor(actors[index + 1], seeker));
+
+  $('scoreValue').textContent = String(gameState.score).padStart(4, '0');
+  $('turnValue').textContent = String(gameState.tick).padStart(4, '0');
+  $('gameMessage').innerHTML = `<i class="pulse"></i> ${escapeText(gameState.message)}`;
+  $('positionReadout').textContent = `LOC ${String(gameState.player[0] + 1).padStart(2, '0')}, ${String(gameState.player[1] + 1).padStart(2, '0')}`;
+  $('levelValue').textContent = String(gameState.level).padStart(2, '0');
+  $('remainingValue').textContent = String(gameState.remaining).padStart(3, '0');
+  $('powerValue').textContent = gameState.powerTurns ? `${gameState.powerTurns} moves` : 'Inactive';
+
+  const status = $('statusPill');
+  status.textContent = gameState.status === 'playing' ? 'IN PLAY' : 'CAUGHT';
+  status.className = `status-pill ${gameState.status}`;
+  const expanded = gameState.explored.reduce((sum, count) => sum + count, 0);
+  $('expandedValue').textContent = gameState.tick ? `${expanded} nodes / move` : '—';
+  const routeLengths = gameState.paths.map(path => Math.max(0, path.length - 1));
+  $('pathStats').textContent = routeLengths.length
+    ? `BFS distance · ${routeLengths.map((length, index) => `S${index + 1}: ${length}`).join('  ·  ')}`
+    : 'Routes recalculate after every move.';
+
+  if (gameState.status === 'caught') showEndDialog();
+}
+
+function escapeText(text) {
+  const span = document.createElement('span');
+  span.textContent = text;
+  return span.innerHTML;
+}
+
+function showEndDialog() {
+  $('endOverlay').className = 'end-overlay caught';
+  $('endIcon').textContent = '×';
+  $('endKicker').textContent = 'RUN TERMINATED';
+  $('endTitle').textContent = 'The seekers caught you.';
+  $('endMessage').textContent = `${gameState.score} points · level ${gameState.level} · ${gameState.collected} dots collected`;
+  $('endOverlay').hidden = false;
+  requestAnimationFrame(() => $('endOverlay').classList.add('visible'));
+  $('playAgainBtn').focus();
+}
+
+async function move(direction) {
+  if (!gameState || gameState.status !== 'playing') return;
+  queuedMoves.push(direction);
+  if (busy) return;
+  busy = true;
+  try {
+    while (queuedMoves.length && gameState.status === 'playing') {
+      const nextDirection = queuedMoves.shift();
+      gameState = await request('move', { direction: nextDirection });
+      render();
+    }
+  } catch (error) {
+    $('gameMessage').textContent = `Connection lost: ${error.message}`;
+  } finally {
+    busy = false;
   }
 }
-gridEl.addEventListener('pointerdown', async event => {
-  const cell = cellPayload(event); if (!cell || locked) return;
-  event.preventDefault(); dragging = true;
-  const [row, col] = cell;
-  if (state.stage === 1) { dragMode = state.grid[row][col] === WALL ? 'erase' : 'place'; await clickCell(row, col, dragMode); }
-  else { dragging = false; await clickCell(row, col); }
-});
-gridEl.addEventListener('pointermove', event => {
-  const cell = cellPayload(event);
-  $('coordReadout').textContent = cell ? `ROW ${String(cell[0] + 1).padStart(2, '0')}   COL ${String(cell[1] + 1).padStart(2, '0')}` : 'ROW --   COL --';
-  if (dragging && event.buttons) handleCellPointer(event);
-});
-gridEl.addEventListener('pointerover', handleCellPointer);
-window.addEventListener('pointerup', () => { dragging = false; });
-window.addEventListener('pointercancel', () => { dragging = false; });
 
-$('nextBtn').onclick = async () => { state = await api('navigate', { action: 'next' }); render(); };
-$('backBtn').onclick = async () => { state = await api('navigate', { action: 'back' }); render(); };
-$('speedControl').onclick = async event => {
-  if (!event.target.matches('button')) return;
-  document.querySelectorAll('#speedControl button').forEach(button => button.classList.toggle('selected', button === event.target));
-  state = await api('speed', { speed: event.target.dataset.speed });
-};
-$('algorithmBtn').onclick = () => {
-  const note = $('algorithmNote'), open = note.hidden;
-  note.hidden = !open; $('algorithmBtn').setAttribute('aria-expanded', String(open));
-};
-$('clearBtn').onclick = async () => { if (!locked) { state = await api('clear'); debugMode = false; render(); } };
-$('resetBtn').onclick = async () => {
-  clearTimeout(animationTimer); animationTimer = null; locked = false; animationEvents = []; animationIndex = 0;
-  state = await api('reset'); render();
-};
-
-function finishAnimation() {
-  clearTimeout(animationTimer); animationTimer = null;
-  api('finish').then(result => {
-    state = result; locked = false; render();
-    if (state.stage === 5) showResultDialog();
-  });
-}
-function showResultDialog() {
-  const found = state.resultType === 'success';
-  $('resultOverlay').className = `result-overlay ${found ? 'success' : 'failure'}`;
-  $('dialogEyebrow').textContent = found ? 'ROUTE ANALYSIS COMPLETE' : 'ROUTE ANALYSIS FINISHED';
-  $('dialogGlyph').textContent = found ? '✓' : '×';
-  $('dialogTitle').textContent = found ? 'Evacuation route found' : 'No accessible exit found';
-  $('dialogMessage').textContent = state.result;
-  $('resultOverlay').hidden = false;
-  requestAnimationFrame(() => $('resultOverlay').classList.add('visible'));
-  $('dialogClose').focus();
-}
-function closeResultDialog() {
-  const overlay = $('resultOverlay');
-  overlay.classList.remove('visible');
-  window.setTimeout(() => { overlay.hidden = true; }, 220);
-}
-async function resetFromDialog() {
-  closeResultDialog();
-  state = await api('reset'); render();
-}
-$('dialogClose').onclick = closeResultDialog;
-$('dialogCloseIcon').onclick = closeResultDialog;
-$('dialogReset').onclick = resetFromDialog;
-$('resultOverlay').addEventListener('click', event => {
-  if (event.target === $('resultOverlay')) closeResultDialog();
-});
-window.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && !$('resultOverlay').hidden) closeResultDialog();
-});
-function advanceAnimation() {
-  if (animationIndex >= animationEvents.length) { finishAnimation(); return; }
-  const [row, col, value] = animationEvents[animationIndex++];
-  if (state.grid[row][col] !== START && state.grid[row][col] !== EXIT) paint(row, col, value);
-  if (animationIndex >= animationEvents.length) { animationTimer = setTimeout(finishAnimation, animationDelay); return; }
-  if (!debugMode) animationTimer = setTimeout(advanceAnimation, animationDelay);
-}
-$('startBtn').onclick = async () => {
-  state = await api('start'); render(); if (state.stage !== 4) return;
-  locked = true; animationIndex = 0; animationEvents = [];
-  state.explored.forEach(([row, col]) => animationEvents.push([row, col, VISITED]));
-  state.path.forEach(([row, col]) => animationEvents.push([row, col, PATH]));
-  animationDelay = { Slow: 150, Normal: 60, Fast: 15 }[state.speed] || 60;
-  if (!debugMode) animationTimer = setTimeout(advanceAnimation, animationDelay);
-};
-$('stepBtn').onclick = () => {
-  if (state?.stage === 4 && debugMode) advanceAnimation();
-  else {
-    debugMode = !debugMode;
-    if (debugMode) clearTimeout(animationTimer);
-    else if (state?.stage === 4 && animationIndex < animationEvents.length) animationTimer = setTimeout(advanceAnimation, animationDelay);
+async function restart() {
+  if (busy) return;
+  busy = true;
+  queuedMoves = [];
+  try {
+    gameState = await request('reset', {});
+    renderedLevel = null;
+    $('endOverlay').classList.remove('visible');
+    $('endOverlay').hidden = true;
     render();
+  } finally {
+    busy = false;
   }
-};
-$('exportBtn').onclick = () => {
-  if (!state?.path?.length) return;
-  const data = { algorithm: 'Breadth-First Search', grid: { rows: GRID_SIZE.rows, columns: GRID_SIZE.cols }, start: state.start, exits: state.exits, path: state.path, steps: state.path.length - 1 };
-  const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-  link.download = 'smartevac-route.json'; link.click(); URL.revokeObjectURL(link.href);
-};
-sync().catch(error => { $('resultText').textContent = `Unable to connect to the planner: ${error.message}`; });
+}
+
+document.addEventListener('keydown', event => {
+  const direction = directions[event.key];
+  if (!direction || gameState?.status !== 'playing') return;
+  event.preventDefault();
+  if (!event.repeat) move(direction);
+});
+document.querySelectorAll('.move-key').forEach(button => {
+  button.addEventListener('click', () => move(button.dataset.direction));
+});
+$('restartBtn').addEventListener('click', restart);
+$('playAgainBtn').addEventListener('click', restart);
+
+request('state').then(state => {
+  gameState = state;
+  render();
+}).catch(error => {
+  $('gameMessage').textContent = `Could not load the game: ${error.message}`;
+});
