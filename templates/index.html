@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Smart Evac · Emergency Route Planner</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='style.css') }}"
+        />
+    </head>
+    <body>
+        <main class="shell">
+            <header class="topbar">
+                <a class="brand" href="/"
+                    ><span class="brand-mark">S</span
+                    ><span
+                        >SMART<span class="brand-light">EVAC</span
+                        ><small>EMERGENCY ROUTE PLANNER</small></span
+                    ></a
+                >
+                <div class="live">
+                    <i></i> ROUTE LAB <span>·</span> GRID {{ rows }} × {{ cols
+                    }}
+                </div>
+            </header>
+            <section class="intro">
+                <div>
+                    <div class="eyebrow">BUILDING EVACUATION SIMULATOR</div>
+                    <h1>Find the <em>Shortest Route</em> to the Exit</h1>
+                    <p>
+                        Design a floor plan, place your exits, and watch the
+                        shortest safe route unfold.
+                    </p>
+                </div>
+                <div class="algorithm">
+                    <span class="algorithm-icon">⌘</span
+                    ><span
+                        ><b>BREADTH-FIRST SEARCH</b
+                        ><small
+                            >Shortest path · 4-directional movement</small
+                        ></span
+                    >
+                </div>
+            </section>
+            <section class="workspace">
+                <div class="map-card">
+                    <div class="map-head">
+                        <div>
+                            <span class="section-kicker">FLOOR PLAN</span>
+                            <h2>Building layout</h2>
+                        </div>
+                        <div class="map-tools">
+                            <span class="edit-hint" id="editHint"
+                                >Click & drag to place walls</span
+                            ><button
+                                id="clearBtn"
+                                class="icon-button"
+                                title="Clear all"
+                            >
+                                ↺
+                            </button>
+                        </div>
+                    </div>
+                    <div class="grid-wrap">
+                        <div
+                            id="grid"
+                            class="grid"
+                            role="grid"
+                            aria-label="Building floor plan"
+                        ></div>
+                    </div>
+                    <div class="map-foot">
+                        <span
+                            ><i class="pulse-dot"></i>
+                            <b id="mapStatus">EDIT MODE</b></span
+                        ><span id="coordReadout">Select a cell</span>
+                    </div>
+                </div>
+                <aside class="sidebar">
+                    <section class="panel step-panel">
+                        <div class="panel-label">
+                            <span>YOUR WORKFLOW</span
+                            ><span id="stepCounter">01 / 03</span>
+                        </div>
+                        <div class="progress"><i id="progressBar"></i></div>
+                        <div class="stage-icon" id="stageIcon">▦</div>
+                        <h2 id="stageTitle">Draw the walls</h2>
+                        <p id="stageDescription">
+                            Click or drag across the grid to mark obstacles and
+                            shape your building.
+                        </p>
+                        <div id="stageMessage" class="stage-message">
+                            Walls are the first step in planning a safe
+                            evacuation.
+                        </div>
+                        <div class="nav-row">
+                            <button id="backBtn" class="button secondary">
+                                ← Back</button
+                            ><button id="nextBtn" class="button primary">
+                                Choose exits <span>→</span>
+                            </button>
+                        </div>
+                    </section>
+                    <section class="panel config-panel">
+                        <div class="panel-label">
+                            CONFIGURATION <span class="tiny-live">LIVE</span>
+                        </div>
+                        <div class="config-row">
+                            <span><i class="legend wall"></i>Walls</span
+                            ><b id="wallCount">0 cells</b>
+                        </div>
+                        <div class="config-row">
+                            <span><i class="legend exit"></i>Exits</span
+                            ><b id="exitCount">0 exits</b>
+                        </div>
+                        <div class="config-row">
+                            <span
+                                ><i class="legend start"></i>Starting
+                                point</span
+                            ><b id="startValue">Not set</b>
+                        </div>
+                    </section>
+                    <section class="panel legend-panel">
+                        <div class="panel-label">MAP LEGEND</div>
+                        <div class="legend-grid">
+                            <span><i class="legend empty"></i>Walkable</span
+                            ><span><i class="legend visited"></i>Explored</span
+                            ><span><i class="legend wall"></i>Obstacle</span
+                            ><span><i class="legend path"></i>Route</span
+                            ><span><i class="legend exit"></i>Exit</span
+                            ><span><i class="legend start"></i>Start</span>
+                        </div>
+                    </section>
+                    <section class="panel controls-panel">
+                        <div class="panel-label">SIMULATION</div>
+                        <label class="speed-label">Animation speed</label>
+                        <div class="speed-control" id="speedControl">
+                            <button data-speed="Slow">Slow</button
+                            ><button class="selected" data-speed="Normal">
+                                Normal</button
+                            ><button data-speed="Fast">Fast</button>
+                        </div>
+                        <button id="startBtn" class="button launch" disabled>
+                            <span>▶</span> Start simulation</button
+                        ><button id="resetBtn" class="button reset" disabled>
+                            ↺ &nbsp;Reset simulation
+                        </button>
+                    </section>
+                    <section class="result-card" id="resultCard">
+                        <div class="result-heading">
+                            <span class="result-icon">✳</span
+                            ><span>SIMULATION RESULT</span
+                            ><span class="result-line"></span>
+                        </div>
+                        <p id="resultText">Awaiting simulation…</p>
+                    </section>
+                </aside>
+            </section>
+            <footer>
+                <span>SMART EVAC <i>·</i> DSA PROJECT</span
+                ><span>Plan safely. Move quickly.</span>
+            </footer>
+        </main>
+        <script>
+            window.GRID_SIZE = { rows: {{ rows }}, cols: {{ cols }} };
+        </script>
+        <script src="{{ url_for('static', filename='app.js') }}"></script>
+    </body>
+</html>
