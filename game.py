@@ -149,10 +149,34 @@ class NodeRun:
             self.last_paths.append([list(cell) for cell in path])
             next_seekers.append(path[1] if len(path) > 1 else seeker)
 
+        seekers_reset = False
         if self.power_turns:
             self.power_turns -= 1
         else:
+            previous_seekers = self.seekers
             self.seekers = next_seekers
+            for _ in range(len(self.seekers)):
+                groups = {}
+                for index, position in enumerate(self.seekers):
+                    groups.setdefault(position, []).append(index)
+                overlaps = [group for group in groups.values() if len(group) > 1]
+                if not overlaps:
+                    break
+                for group in overlaps:
+                    # Keep a seeker already at its own spawn, otherwise keep
+                    # one that held its position. Only the merged seekers reset.
+                    home = [i for i in group if self.seekers[i] == SEEKER_STARTS[i]]
+                    stationary = [i for i in group if next_seekers[i] == previous_seekers[i]]
+                    keeper = (home or stationary or group)[0]
+                    for index in group:
+                        if index == keeper:
+                            continue
+                        self.seekers[index] = SEEKER_STARTS[index]
+                        self.last_paths[index] = []
+                        self.last_explored[index] = 0
+                        seekers_reset = True
+            if seekers_reset:
+                self.message = "A merged seeker reset to its spawn point."
             if self.player in self.seekers:
                 self.status = "caught"
                 self.message = "A seeker found your position using BFS. Restart and try another route."
@@ -160,7 +184,7 @@ class NodeRun:
         if self.status == "playing" and not self.pellets and not self.pulses:
             self.level += 1
             self.start_level(f"Level {self.level}: new random maze. Keep moving!")
-        elif self.status == "playing" and not collected_pellet and not collected_pulse:
+        elif self.status == "playing" and not collected_pellet and not collected_pulse and not seekers_reset:
             self.message = "Seekers recalculate shortest paths after every move."
         return self.snapshot()
 
