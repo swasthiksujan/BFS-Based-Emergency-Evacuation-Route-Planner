@@ -4,7 +4,7 @@ from collections import deque
 from constants import WALL
 
 
-def bfs(start, exits, grid):
+def bfs(start, exits, grid, include_trace=False):
     rows = len(grid)
     cols = len(grid[0])
 
@@ -22,11 +22,19 @@ def bfs(start, exits, grid):
     parent[start] = None
 
     explored   = []         # list used by the animation
+    trace = []
     found_exit = None
 
     # Main BFS loop
     while queue:
         current = queue.popleft()
+        if include_trace:
+            trace.append({
+                "current": list(current),
+                "frontier": [list(cell) for cell in queue],
+                "discovered": len(explored),
+                "distance": len(reconstruct_path(parent, current)) - 1,
+            })
 
         if current in exits:
             found_exit = current
@@ -54,6 +62,8 @@ def bfs(start, exits, grid):
 
     # Reconstruct the shortest path
     path = reconstruct_path(parent, found_exit)
+    if include_trace:
+        return explored, path, trace
     return explored, path
 
 

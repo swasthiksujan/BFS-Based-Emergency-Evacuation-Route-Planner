@@ -84,6 +84,8 @@ class NodeRun:
         self.power_turns = 0
         self.last_paths = [[] for _ in self.seekers]
         self.last_explored = [0 for _ in self.seekers]
+        self.last_discovered = [[] for _ in self.seekers]
+        self.last_traces = [[] for _ in self.seekers]
         self.message = message
 
     def snapshot(self):
@@ -105,6 +107,8 @@ class NodeRun:
             "message": self.message,
             "paths": deepcopy(self.last_paths),
             "explored": list(self.last_explored),
+            "discovered": deepcopy(self.last_discovered),
+            "traces": deepcopy(self.last_traces),
             "powerTurns": self.power_turns,
             "algorithm": "Breadth-First Search",
         }
@@ -142,10 +146,14 @@ class NodeRun:
 
         self.last_paths = []
         self.last_explored = []
+        self.last_discovered = []
+        self.last_traces = []
         next_seekers = []
         for seeker in self.seekers:
-            explored, path = bfs(seeker, {self.player}, self.grid)
+            explored, path, trace = bfs(seeker, {self.player}, self.grid, include_trace=True)
             self.last_explored.append(len(explored))
+            self.last_discovered.append([list(cell) for cell in explored])
+            self.last_traces.append(trace)
             self.last_paths.append([list(cell) for cell in path])
             next_seekers.append(path[1] if len(path) > 1 else seeker)
 
